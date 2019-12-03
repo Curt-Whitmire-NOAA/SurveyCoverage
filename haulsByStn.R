@@ -1,10 +1,10 @@
 library(rstudioapi)
 library(dplyr)
-library(rgeos) # "Geomegry Engine- Open Source (GEOS)"
-library(rgdal) # "Geospatial Data Analysis Library (GDAL)"
+# library(rgeos) # "Geomegry Engine- Open Source (GEOS)"
+# library(rgdal) # "Geospatial Data Analysis Library (GDAL)"
 # library(sp) # superceded by 'sf' package
 library(sf)
-library(tmap)
+# library(tmap)
 
 # import 'nwfscSurvey' package
 library(nwfscSurvey)
