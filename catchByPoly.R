@@ -1,17 +1,15 @@
-library(rstudioapi)
 library(tidyr)
 library(dplyr)
-library(sf)
-library(nwfscSurvey)
-library(chron)
+# library(chron) # recommended by John Wallace; didn't use here
 
 # Set working directory
+library(rstudioapi)
 current_path <- getActiveDocumentContext()$path
 setwd(dirname(current_path))
 print(getwd())
 
 # import shapefiles
-# poly <- sf::st_read("BOEM_CA_OR_WEAs_WGS84.shp")
+library(sf)
 poly <- sf::st_read("WCGBTS_Grid_v2008_GCSWGS84.shp")
 wea <- sf::st_read("BOEM_CA_OR_WEAs_WGS84.shp", query = "SELECT * FROM \"BOEM_CA_OR_WEAs_WGS84\" WHERE Area_Name IN ('Coos Bay','Brookings')")
 # sf::st_crs(poly)
@@ -23,18 +21,20 @@ wea <- st_as_sf(wea)
 # Dissolve WEAs into a single extent
 wea <- st_union(wea)
 
-# # import haul data
-# haul_dat = PullHaul.fn(SurveyName = "NWFSC.Combo", YearRange=c(2003,2019))
-# 
-# # Filter haul data geographically
-# haul_dat <- haul_dat %>% 
-#   filter(latitude_dd >= 42.0 & latitude_dd <= 46.25) # filter geographically
-
-# import catch data
+# Designate species subsets
 load("SPECIES.FMP.Updated with Sci Name and SPID, 24 May 2022.RData")
 spec_set_first50 <- head(SPECIES.FMP.Updated$Scientific_Name,50) # for ALL groundfish FMP species
 spec_set_last42 <- tail(SPECIES.FMP.Updated$Scientific_Name,42) # for ALL groundfish FMP species
-# spec_set_sub <- SPECIES.FMP.Updated$Scientific_Name[35:65] # subset of groundfish FMP species
+spec_set_08 <- c(
+  'Anoplopoma fimbria' # sablefish
+  ,'Microstomus pacificus' # Dover sole
+  ,'Raja rhina' # longnose skate; invalid synonym (Beringraja rhina)
+  ,'Ophiodon elongatus' # lingcod
+  ,'Sebastolobus alascanus' # shortspine thornyhead
+  ,'Sebastolobus altivelis' # longspine thornyhead
+  ,'Sebastes aleutianus' # Rougheye/Blackspotted rockfish
+  ,'Sebastes crameri' # darkblotched rockfish
+)
 spec_set_22 = c(
   'Anoplopoma fimbria' # sablefish
   ,'Atheresthes stomias' # arrowtooth flounder
@@ -62,14 +62,21 @@ spec_set_22 = c(
   ,'Squalus suckleyi' # Pacific spiny dogfish
 )
 
-# Set dataset string description for later use
-# dataStr_22 = paste0(as.character(length(spec_set_22)), "_GF_spp")
-# dataStr_ALL = paste0(as.character(length(spec_set_first50)+length(spec_set_last42)), "_GF_spp")
+# Pull catch data from FRAM Data Warehouse using {nwfscSurvey}
+library(nwfscSurvey)
+catch_dat_08 <- PullCatch.fn(SciName = spec_set_08, SurveyName = "NWFSC.Combo") # for 7 select species
+catch_dat_22 <- PullCatch.fn(SciName = spec_set_22, SurveyName = "NWFSC.Combo") # for 22 select species
+catch_dat_first50 <- PullCatch.fn(SciName = spec_set_first50, SurveyName = "NWFSC.Combo") # for All groundfish species, set 1
+catch_dat_last42 <- PullCatch.fn(SciName = spec_set_last42, SurveyName = "NWFSC.Combo") # for All groundfish species, set 2
+catch_dat_80 <- rbind(catch_dat_first50, catch_dat_last42) # for All groundfish species, combiined
 
-catch_dat_22 = PullCatch.fn(SciName = spec_set_22, SurveyName = "NWFSC.Combo")
-catch_dat_first50 = PullCatch.fn(SciName = spec_set_first50, SurveyName = "NWFSC.Combo")
-catch_dat_last42 = PullCatch.fn(SciName = spec_set_last42, SurveyName = "NWFSC.Combo")
-catch_dat_ALL <-  rbind(catch_dat_first50, catch_dat_last42)
+# Function to count # of potential species within each survey cell
+# function needs to iterate through list of species and min/max depths, then
+# count if the cell depth range overlaps the species depth range, then
+# move on to the next species and so forth
+# The total count returned should = the # of species with overlapping depth distributions
+# Use {IRanges}
+# See https://stackoverflow.com/questions/26905601/comparing-and-finding-overlap-range-in-r
 
 # Explore species distributions by depth and latitude, for subset of species
 spp_dist_22 <- catch_dat_22 %>% 
@@ -82,13 +89,6 @@ spp_dist_22 <- catch_dat_22 %>%
          ) %>% 
   mutate(dataStr=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp"))
 
-# Function to count # of potential species within each survey cell
-# function needs to iterate through list of species and min/max depths, then
-# count if the cell depth range overlaps the species depth range, then
-# move on to the next species and so forth
-# The total count returned should = the # of species with overlapping depth distributions
-# See https://stackoverflow.com/questions/26905601/comparing-and-finding-overlap-range-in-r
-
 # Create depth range classes for species and cells
 library(IRanges)
 ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
@@ -96,7 +96,7 @@ ir2 = with(spp_dist_22, IRanges(dep_min, dep_max)) # declare range for species d
 poly$numSpp22 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
 
 # Explore species distributions by depth and latitude, for All groundfish species
-spp_dist_ALL <- catch_dat_ALL %>% 
+spp_dist_80 <- catch_dat_80 %>% 
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>%
   group_by(Scientific_name) %>% 
   summarize(dep_min = min(Depth_m)
@@ -106,61 +106,70 @@ spp_dist_ALL <- catch_dat_ALL %>%
   ) %>% 
   mutate(dataStr=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp"))
 
+# Create depth range classes for species and cells
+library(IRanges)
 ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
-ir2 = with(spp_dist_ALL, IRanges(dep_min, dep_max)) # declare range for species depth distributions
-poly$numSppALL = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+ir2 = with(spp_dist_80, IRanges(dep_min, dep_max)) # declare range for species depth distributions
+poly$numSpp80 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
 
 # Filter catch data geographically; this is now accomplished via a spatial intersect
+# catch_dat_08 <- catch_dat_08 %>% 
+#   filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
 # catch_dat_22 <- catch_dat_22 %>% 
 #   filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
-# catch_dat_ALL <- catch_dat_ALL %>% 
+# catch_dat_80 <- catch_dat_80 %>% 
 #   filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
 
 # convert haul data to point spatial object
 projcrs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-# haul_pts <-  st_as_sf(x = haul_dat,                         
-#                   coords = c("longitude_dd", "latitude_dd"),
-#                   crs = st_crs(poly))
+
+catch_pts_08 <- st_as_sf(x = catch_dat_08,                         
+                        coords = c("Longitude_dd", "Latitude_dd"),
+                        crs = st_crs(poly))
 catch_pts_22 <- st_as_sf(x = catch_dat_22,                         
                coords = c("Longitude_dd", "Latitude_dd"),
                crs = st_crs(poly))
-catch_pts_ALL <- st_as_sf(x = catch_dat_ALL,                         
+catch_pts_80 <- st_as_sf(x = catch_dat_80,                         
                          coords = c("Longitude_dd", "Latitude_dd"),
                          crs = st_crs(poly))
 
-# Get start and end years from haul data
-yr_srt = as.character(min(catch_dat_22$Year))
-yr_end = as.character(max(catch_dat_22$Year))
+# Get start and end years from catch data set
+yr_srt = as.character(min(catch_dat_80$Year))
+yr_end = as.character(max(catch_dat_80$Year))
 yr_str = paste0(yr_srt, "_", yr_end)
 
-# # Summarize Tows by Station; Not needed at this time
-# res1a <- st_join(haul_pts, poly)
-# 
-# st_geometry(res1a) <- NULL
-# 
-# towSumm <- res1a %>% 
-#   mutate(TowsByPer=n()) %>% 
-#   group_by(CentroidID,TowsByPer) %>% 
-#   tally(name = "TowsByStn") %>% 
-#   mutate(pctTows = TowsByStn/TowsByPer*100)
-
-# Spatially join each Catch dataset by station set
-res1b <- st_join(catch_pts_22, poly)
-res1c <- st_join(catch_pts_ALL, poly)
+# Spatially join each Catch data set by station set
+sj08spp <- st_join(catch_pts_08, poly)
+sj22spp <- st_join(catch_pts_22, poly)
+sj80Spp <- st_join(catch_pts_80, poly)
 
 # Clip results to WEAs extent
-res1b <- st_intersection(res1b, wea)
+sj08spp <- st_intersection(sj08spp, wea)
+# numSpp_1b <- n_distinct(res1b$Scientific_name) # for testing purposes; # of unique species within data ran
+sj22spp <- st_intersection(sj22spp, wea)
 # numSpp_1b <- n_distinct(res1b$Scientific_name) # for testing purposes; # of unique species within data range
-res1c <- st_intersection(res1c, wea)
+sj80Spp <- st_intersection(sj80Spp, wea)
 # numSpp_1c <- n_distinct(res1c$Scientific_name) # for testing purposes; # of unique species within data range
 
 # remove the geometry field
-st_geometry(res1b) <- NULL
-st_geometry(res1c) <- NULL
+st_geometry(sj08spp) <- NULL
+st_geometry(sj22spp) <- NULL
+st_geometry(sj80Spp) <- NULL
 
 # Calculate average and normalized CPUE by survey station
-catch_summ_wgt_22 <- res1b %>% 
-  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
+catch_summ_08_wgt <- sj08spp %>% 
+  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>%  # add data set unique identifier string
+  filter(!is.na(CentroidID)) %>%
+  group_by(data, CentroidID) %>%
+  summarize(numTows=n_distinct(Trawl_id)
+            ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE) # calculate total weight for each cell
+  ) %>% 
+  mutate(avgCatchWgt = sumCatchWgt / numTows ) %>% # calculate average weight for each cell
+  mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )) # normalized
+
+# Calculate average and normalized CPUE by survey station
+catch_summ_22_wgt <- sj22spp %>% 
+  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>%  # add data set unique identifier string
   filter(!is.na(CentroidID)) %>%
   group_by(data, CentroidID) %>%
   summarize(numTows=n_distinct(Trawl_id)
@@ -170,8 +179,8 @@ catch_summ_wgt_22 <- res1b %>%
   mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )) # normalized
 
 # Calculate basic, proportional, and normalized species richness by survey station
-catch_summ_div_22 <- res1b %>% 
-  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
+catch_summ_22_div <- sj22spp %>% 
+  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>%  # add data set unique identifier string
   filter(!is.na(CentroidID)) %>%
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>% # filter out tows with no catch of a given taxon
   group_by(data, CentroidID, numSpp22) %>%
@@ -179,12 +188,12 @@ catch_summ_div_22 <- res1b %>%
             ,sppRich = n_distinct(Scientific_name) # calculate species richness for each cell
             ) %>% 
   mutate(sppRich_prop = sppRich / numSpp22) %>% # calculate proportion of taxa caught in each cell
-  ungroup() %>% 
+  ungroup() %>% # ungroup to calcualte min and max values on entire data range
   mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
 # Calculate average and normalized CPUE by survey station
-catch_summ_wgt_ALL <- res1c %>% 
-  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
+catch_summ_80_wgt <- sj80Spp %>% 
+  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>%  # add ddata set unique identifier string
   filter(!is.na(CentroidID)) %>%
   group_by(data, CentroidID) %>%
   summarize(numTows=n_distinct(Trawl_id)
@@ -194,52 +203,62 @@ catch_summ_wgt_ALL <- res1c %>%
   mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )) # normalized
 
 # Calculate basic, proportional, and normalized species richness by survey station
-catch_summ_div_ALL <- res1c %>% 
-  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
+catch_summ_80_div <- sj80Spp %>% 
+  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% # add data set unique identifier string
   filter(!is.na(CentroidID)) %>%
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>% # filter out tows with no catch of a given taxon
-  group_by(data, CentroidID, numSppALL) %>%
+  group_by(data, CentroidID, numSpp80) %>%
   summarize(numTows=n_distinct(Trawl_id)
             ,sppRich = n_distinct(Scientific_name) # calculate species richness for each cell
             ) %>% 
-  mutate(sppRich_prop = sppRich / numSppALL) %>%  # calculate proportion of taxa caught in each cell
-  ungroup() %>% 
+  mutate(sppRich_prop = sppRich / numSpp80) %>%  # calculate proportion of taxa caught in each cell
+  ungroup() %>% # ungroup to calcualte min and max values on entire data range
   mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
 # Join datasets
-catch_summ_22 <- inner_join(catch_summ_wgt_22, catch_summ_div_22, by = c("data","CentroidID")) %>% 
+catch_summ_22 <- inner_join(catch_summ_22_wgt, catch_summ_22_div, by = c("data","CentroidID")) %>% 
   mutate(numTows_22 = numTows.x
-         ,avgCatchWgt_norm_22 = avgCatchWgt_norm
-         ,sppRich_norm_22 = sppRich_norm) %>% 
-  select(data, CentroidID, numTows_22, sppRich_norm_22, avgCatchWgt_norm_22)
+         ,avgCatchWgt_22_norm = avgCatchWgt_norm
+         ,sppRich_22_norm = sppRich_norm) %>% 
+  select(data, CentroidID, numTows_22, sppRich_22_norm, avgCatchWgt_22_norm)
 
-catch_summ_ALL <- inner_join(catch_summ_wgt_ALL, catch_summ_div_ALL, by = c("data","CentroidID")) %>% 
-  mutate(numTows_ALL = numTows.x
-         ,avgCatchWgt_norm_ALL = avgCatchWgt_norm
-         ,sppRich_norm_ALL = sppRich_norm) %>% 
-  select(data, CentroidID, numTows_ALL, sppRich_norm_ALL, avgCatchWgt_norm_ALL)
+catch_summ_80 <- inner_join(catch_summ_80_wgt, catch_summ_80_div, by = c("data","CentroidID")) %>% 
+  mutate(numTows_80 = numTows.x
+         ,avgCatchWgt_80_norm = avgCatchWgt_norm
+         ,sppRich_80_norm = sppRich_norm) %>% 
+  select(data, CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_80_norm)
 
-# Final join of data
-catch_summ <- inner_join(catch_summ_22, catch_summ_ALL, by = "CentroidID") %>% 
-  mutate(val_WCGBTS = sppRich_norm_ALL + avgCatchWgt_norm_22 + avgCatchWgt_norm_ALL) %>% 
-  select(CentroidID, numTows_ALL, sppRich_norm_ALL, avgCatchWgt_norm_22, avgCatchWgt_norm_ALL, val_WCGBTS)
+# Final joins of data
+catch_summ_22_80 <- inner_join(catch_summ_22, catch_summ_80, by = "CentroidID") %>% 
+  mutate(val_WCGBTS = sppRich_80_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm) %>% 
+  select(CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS)
 
-# Export to CSV table
+catch_summ <- inner_join(catch_summ_08_wgt, catch_summ_22_80, by = "CentroidID") %>% 
+  mutate(avgCatchWgt_08_norm = avgCatchWgt_norm) %>% 
+  mutate(val_WCGBTS = sppRich_80_norm + avgCatchWgt_08_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm) %>% 
+  select(CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_08_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS)
+
+# QC check for normalized data
+r1 <- range(min(catch_summ$sppRich_80_norm),max(catch_summ$sppRich_80_norm))
+r2 <- range(min(catch_summ$avgCatchWgt_08_norm),max(catch_summ$avgCatchWgt_08_norm))
+r3 <- range(min(catch_summ$avgCatchWgt_22_norm),max(catch_summ$avgCatchWgt_22_norm))
+r4 <- range(min(catch_summ$avgCatchWgt_80_norm),max(catch_summ$avgCatchWgt_80_norm))
+# r5 <- range(min(catch_summ$trawl_norm),max(catch_summ$trawl_norm))
+r6 <- range(min(catch_summ$val_WCGBTS),max(catch_summ$val_WCGBTS))
+
+# Export catch summary to CSV table
 library(readr)
 outCSV <-  paste0("WCGBTS_", yr_str, "_summ_Value", ".csv")
 write_csv(catch_summ, outCSV, na = "", append = FALSE)
 
-# Plotting
-library(ggplot2)
-library(RColorBrewer)
+# Prepare layers for plotting
 library(rnaturalearth)
 library(rnaturalearthdata)
-library(ggspatial)
-
+library(sf)
 world <- ne_countries(scale = "medium", returnclass = "sf")
 class(world)
 
-# create points for state labels
+# Create points for state labels
 library(maps)
 states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
 state_list <- c('California', 'Oregon', 'Washington')
@@ -255,6 +274,9 @@ head(states)
 p1shp = left_join(poly, catch_summ, by = c("CentroidID"))
 stns <- cbind(p1shp, st_coordinates(st_centroid(p1shp, of_largest_polygon = TRUE)))
 
+library(ggplot2)
+library(RColorBrewer)
+library(ggspatial)
 # ggplot template
 # ggplot(a, aes(x = X, y = Y))+geom_text(aes(label = VAL)) # for this purpose, label = numTows OR label = sppRich
 
