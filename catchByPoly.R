@@ -16,6 +16,13 @@ poly <- sf::st_read("WCGBTS_Grid_v2008_GCSWGS84.shp")
 wea <- sf::st_read("BOEM_CA_OR_WEAs_WGS84.shp", query = "SELECT * FROM \"BOEM_CA_OR_WEAs_WGS84\" WHERE Area_Name IN ('Coos Bay','Brookings')")
 # sf::st_crs(poly)
 
+# convert polygon shapefiles to polygon spatial objects
+poly <- st_as_sf(poly)
+wea <- st_as_sf(wea)
+
+# Dissolve WEAs into a single extent
+wea <- st_union(wea)
+
 # # import haul data
 # haul_dat = PullHaul.fn(SurveyName = "NWFSC.Combo", YearRange=c(2003,2019))
 # 
@@ -55,9 +62,9 @@ spec_set_22 = c(
   ,'Squalus suckleyi' # Pacific spiny dogfish
 )
 
-# dataStr = "22_GF_spp" # change for chosen spp subset (e.g., All GF)
-dataStr_22 = paste0(as.character(length(spec_set_22)), "_GF_spp")
-dataStr_ALL = paste0(as.character(length(spec_set_first50)+length(spec_set_last42)), "_GF_spp")
+# Set dataset string description for later use
+# dataStr_22 = paste0(as.character(length(spec_set_22)), "_GF_spp")
+# dataStr_ALL = paste0(as.character(length(spec_set_first50)+length(spec_set_last42)), "_GF_spp")
 
 catch_dat_22 = PullCatch.fn(SciName = spec_set_22, SurveyName = "NWFSC.Combo")
 catch_dat_first50 = PullCatch.fn(SciName = spec_set_first50, SurveyName = "NWFSC.Combo")
@@ -75,6 +82,19 @@ spp_dist_22 <- catch_dat_22 %>%
          ) %>% 
   mutate(dataStr=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp"))
 
+# Function to count # of potential species within each survey cell
+# function needs to iterate through list of species and min/max depths, then
+# count if the cell depth range overlaps the species depth range, then
+# move on to the next species and so forth
+# The total count returned should = the # of species with overlapping depth distributions
+# See https://stackoverflow.com/questions/26905601/comparing-and-finding-overlap-range-in-r
+
+# Create depth range classes for species and cells
+library(IRanges)
+ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
+ir2 = with(spp_dist_22, IRanges(dep_min, dep_max)) # declare range for species depth distributions
+poly$numSpp22 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+
 # Explore species distributions by depth and latitude, for All groundfish species
 spp_dist_ALL <- catch_dat_ALL %>% 
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>%
@@ -86,11 +106,15 @@ spp_dist_ALL <- catch_dat_ALL %>%
   ) %>% 
   mutate(dataStr=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp"))
 
-# Filter catch data geographically
-catch_dat_22 <- catch_dat_22 %>% 
-  filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
-catch_dat_ALL <- catch_dat_ALL %>% 
-  filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
+ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
+ir2 = with(spp_dist_ALL, IRanges(dep_min, dep_max)) # declare range for species depth distributions
+poly$numSppALL = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+
+# Filter catch data geographically; this is now accomplished via a spatial intersect
+# catch_dat_22 <- catch_dat_22 %>% 
+#   filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
+# catch_dat_ALL <- catch_dat_ALL %>% 
+#   filter(Latitude_dd >= 42.0 & Latitude_dd <= 46.25)
 
 # convert haul data to point spatial object
 projcrs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
@@ -104,55 +128,35 @@ catch_pts_ALL <- st_as_sf(x = catch_dat_ALL,
                          coords = c("Longitude_dd", "Latitude_dd"),
                          crs = st_crs(poly))
 
-# convert polygon shapefiles to polygon spatial objects
-poly <- st_as_sf(poly)
-wea <- st_as_sf(wea)
-
 # Get start and end years from haul data
 yr_srt = as.character(min(catch_dat_22$Year))
 yr_end = as.character(max(catch_dat_22$Year))
 yr_str = paste0(yr_srt, "_", yr_end)
 
-# Summarize Tows by Station
-res1a <- st_join(haul_pts, poly)
+# # Summarize Tows by Station; Not needed at this time
+# res1a <- st_join(haul_pts, poly)
+# 
+# st_geometry(res1a) <- NULL
+# 
+# towSumm <- res1a %>% 
+#   mutate(TowsByPer=n()) %>% 
+#   group_by(CentroidID,TowsByPer) %>% 
+#   tally(name = "TowsByStn") %>% 
+#   mutate(pctTows = TowsByStn/TowsByPer*100)
 
-st_geometry(res1a) <- NULL
-
-towSumm <- res1a %>% 
-  mutate(TowsByPer=n()) %>% 
-  group_by(CentroidID,TowsByPer) %>% 
-  tally(name = "TowsByStn") %>% 
-  mutate(pctTows = TowsByStn/TowsByPer*100)
-
-# Spatially join Catch data by station set
+# Spatially join each Catch dataset by station set
 res1b <- st_join(catch_pts_22, poly)
 res1c <- st_join(catch_pts_ALL, poly)
 
-# Dissolve WEAs into a single extent
-wea <- st_union(wea)
-
 # Clip results to WEAs extent
 res1b <- st_intersection(res1b, wea)
-numSpp_1b <- n_distinct(res1b$Scientific_name)
+# numSpp_1b <- n_distinct(res1b$Scientific_name) # for testing purposes; # of unique species within data range
 res1c <- st_intersection(res1c, wea)
-numSpp_1c <- n_distinct(res1c$Scientific_name)
+# numSpp_1c <- n_distinct(res1c$Scientific_name) # for testing purposes; # of unique species within data range
 
 # remove the geometry field
 st_geometry(res1b) <- NULL
 st_geometry(res1c) <- NULL
-
-library(IRanges)
-ir1 = with(spp_dist, IRanges(dep_min, dep_max))
-ir2 = with(res1b, IRanges(Min_Dep_m, Max_Dep_m))
-# df1$overlap = countOverlaps(ir1, ir2) != 0
-
-# Develop logic for calculating total number of possible species based on recorded depth - GETTING CLOSER
-test <- res1b %>% 
-  mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
-  filter(!is.na(CentroidID)) %>%
-  filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>% # filter out tows with no catch of a given taxon
-  group_by(data, CentroidID) %>%
-  summarize(overlap = countOverlaps( ir1,IRanges(Depth_m,Depth_m)) != 0) # use sapply to compare line by line?
 
 # Calculate average and normalized CPUE by survey station
 catch_summ_wgt_22 <- res1b %>% 
@@ -160,21 +164,23 @@ catch_summ_wgt_22 <- res1b %>%
   filter(!is.na(CentroidID)) %>%
   group_by(data, CentroidID) %>%
   summarize(numTows=n_distinct(Trawl_id)
-            ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE)
-            ,avgCatchWgt = mean(cpue_kg_km2, na.rm = TRUE)
+            ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE) # calculate total weight for each cell
             ) %>% 
-  mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )
-         )
+  mutate(avgCatchWgt = sumCatchWgt / numTows ) %>% # calculate average weight for each cell
+  mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )) # normalized
 
-# Calculate basic and proportional species richness by survey station
+# Calculate basic, proportional, and normalized species richness by survey station
 catch_summ_div_22 <- res1b %>% 
   mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
   filter(!is.na(CentroidID)) %>%
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>% # filter out tows with no catch of a given taxon
-  group_by(data, CentroidID) %>%
+  group_by(data, CentroidID, numSpp22) %>%
   summarize(numTows=n_distinct(Trawl_id)
             ,sppRich = n_distinct(Scientific_name) # calculate species richness for each cell
-            ,sppRich_prop = sppRich / numSpp_1b ) # calculate proportion of taxa caught in each cell
+            ) %>% 
+  mutate(sppRich_prop = sppRich / numSpp22) %>% # calculate proportion of taxa caught in each cell
+  ungroup() %>% 
+  mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
 # Calculate average and normalized CPUE by survey station
 catch_summ_wgt_ALL <- res1c %>% 
@@ -182,39 +188,41 @@ catch_summ_wgt_ALL <- res1c %>%
   filter(!is.na(CentroidID)) %>%
   group_by(data, CentroidID) %>%
   summarize(numTows=n_distinct(Trawl_id)
-            ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE)
-            ,avgCatchWgt = mean(cpue_kg_km2, na.rm = TRUE)
-  ) %>% 
-  mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )
-  )
+            ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE) # calculate total weight for each cell
+            ) %>% 
+  mutate(avgCatchWgt = sumCatchWgt / numTows ) %>% # calculate average weight for each cell
+  mutate(avgCatchWgt_norm = ( avgCatchWgt - min(avgCatchWgt) ) / ( max(avgCatchWgt) - min(avgCatchWgt) )) # normalized
 
-# Calculate basic and proportional species richness by survey station
+# Calculate basic, proportional, and normalized species richness by survey station
 catch_summ_div_ALL <- res1c %>% 
   mutate(data=paste0(as.character(n_distinct(Scientific_name)), "_GF_spp")) %>% 
   filter(!is.na(CentroidID)) %>%
   filter(total_catch_numbers>0 | total_catch_wt_kg>0) %>% # filter out tows with no catch of a given taxon
-  group_by(data, CentroidID) %>%
+  group_by(data, CentroidID, numSppALL) %>%
   summarize(numTows=n_distinct(Trawl_id)
             ,sppRich = n_distinct(Scientific_name) # calculate species richness for each cell
-            ,sppRich_prop = sppRich / numSpp_1c ) # calculate proportion of taxa caught in each cell
+            ) %>% 
+  mutate(sppRich_prop = sppRich / numSppALL) %>%  # calculate proportion of taxa caught in each cell
+  ungroup() %>% 
+  mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
 # Join datasets
 catch_summ_22 <- inner_join(catch_summ_wgt_22, catch_summ_div_22, by = c("data","CentroidID")) %>% 
   mutate(numTows_22 = numTows.x
          ,avgCatchWgt_norm_22 = avgCatchWgt_norm
-         ,sppRich_prop_22 = sppRich_prop) %>% 
-  select(data, CentroidID, numTows_22, sppRich_prop_22, avgCatchWgt_norm_22)
+         ,sppRich_norm_22 = sppRich_norm) %>% 
+  select(data, CentroidID, numTows_22, sppRich_norm_22, avgCatchWgt_norm_22)
 
 catch_summ_ALL <- inner_join(catch_summ_wgt_ALL, catch_summ_div_ALL, by = c("data","CentroidID")) %>% 
   mutate(numTows_ALL = numTows.x
          ,avgCatchWgt_norm_ALL = avgCatchWgt_norm
-         ,sppRich_prop_ALL = sppRich_prop) %>% 
-  select(data, CentroidID, numTows_ALL, sppRich_prop_ALL, avgCatchWgt_norm_ALL)
+         ,sppRich_norm_ALL = sppRich_norm) %>% 
+  select(data, CentroidID, numTows_ALL, sppRich_norm_ALL, avgCatchWgt_norm_ALL)
 
 # Final join of data
 catch_summ <- inner_join(catch_summ_22, catch_summ_ALL, by = "CentroidID") %>% 
-  mutate(val_WCGBTS = sppRich_prop_22 + avgCatchWgt_norm_22 + avgCatchWgt_norm_ALL) %>% 
-  select(CentroidID, numTows_ALL, sppRich_prop_22, avgCatchWgt_norm_22, sppRich_prop_ALL, avgCatchWgt_norm_ALL, val_WCGBTS)
+  mutate(val_WCGBTS = sppRich_norm_ALL + avgCatchWgt_norm_22 + avgCatchWgt_norm_ALL) %>% 
+  select(CentroidID, numTows_ALL, sppRich_norm_ALL, avgCatchWgt_norm_22, avgCatchWgt_norm_ALL, val_WCGBTS)
 
 # Export to CSV table
 library(readr)
