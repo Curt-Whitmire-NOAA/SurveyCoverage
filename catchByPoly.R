@@ -1,6 +1,6 @@
 library(tidyr)
 library(dplyr)
-# library(chron) # recommended by John Wallace; didn't use here
+library(tidyverse)
 
 # Set working directory
 library(rstudioapi)
@@ -215,43 +215,52 @@ catch_summ_80_div <- sj80Spp %>%
   ungroup() %>% # ungroup to calcualte min and max values on entire data range
   mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
-# Join datasets
-catch_summ_22 <- inner_join(catch_summ_22_wgt, catch_summ_22_div, by = c("data","CentroidID")) %>% 
+# Join data summaries
+catch_summ_22 <- full_join(catch_summ_22_wgt, catch_summ_22_div, by = "CentroidID") %>% 
   mutate(numTows_22 = numTows.x
          ,avgCatchWgt_22_norm = avgCatchWgt_norm
          ,sppRich_22_norm = sppRich_norm) %>% 
-  select(data, CentroidID, numTows_22, sppRich_22_norm, avgCatchWgt_22_norm)
+  select(CentroidID, numTows_22, numSpp22, sppRich_22_norm, avgCatchWgt_22_norm)
 
-catch_summ_80 <- inner_join(catch_summ_80_wgt, catch_summ_80_div, by = c("data","CentroidID")) %>% 
+catch_summ_80 <- full_join(catch_summ_80_wgt, catch_summ_80_div, by = "CentroidID") %>% 
   mutate(numTows_80 = numTows.x
          ,avgCatchWgt_80_norm = avgCatchWgt_norm
          ,sppRich_80_norm = sppRich_norm) %>% 
-  select(data, CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_80_norm)
+  select(CentroidID, numTows_80, numSpp80, sppRich_80_norm, avgCatchWgt_80_norm)
 
-# Final joins of data
-catch_summ_22_80 <- inner_join(catch_summ_22, catch_summ_80, by = "CentroidID") %>% 
+catch_summ_22_80 <- full_join(catch_summ_22, catch_summ_80, by = "CentroidID") %>% 
   mutate(val_WCGBTS = sppRich_80_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm) %>% 
-  select(CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS)
+  select(CentroidID, numTows_80, numSpp22, numSpp80, sppRich_80_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS)
 
-catch_summ <- inner_join(catch_summ_08_wgt, catch_summ_22_80, by = "CentroidID") %>% 
+# Final join of data summaries
+catch_summ <- full_join(catch_summ_08_wgt, catch_summ_22_80, by = "CentroidID") %>% 
   mutate(avgCatchWgt_08_norm = avgCatchWgt_norm) %>% 
-  mutate(val_WCGBTS = sppRich_80_norm + avgCatchWgt_08_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm) %>% 
-  select(CentroidID, numTows_80, sppRich_80_norm, avgCatchWgt_08_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS)
+  mutate(trwluntrwl = 1 # categorical value for survey trawlability
+         ,val_WCGBTS = sppRich_80_norm + avgCatchWgt_08_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm) %>% 
+  select(CentroidID, numTows_80, numSpp22, numSpp80, sppRich_80_norm, avgCatchWgt_08_norm, avgCatchWgt_22_norm, avgCatchWgt_80_norm, val_WCGBTS, trwluntrwl)
 
 # QC check for normalized data
 r1 <- range(min(catch_summ$sppRich_80_norm),max(catch_summ$sppRich_80_norm))
 r2 <- range(min(catch_summ$avgCatchWgt_08_norm),max(catch_summ$avgCatchWgt_08_norm))
 r3 <- range(min(catch_summ$avgCatchWgt_22_norm),max(catch_summ$avgCatchWgt_22_norm))
 r4 <- range(min(catch_summ$avgCatchWgt_80_norm),max(catch_summ$avgCatchWgt_80_norm))
-# r5 <- range(min(catch_summ$trawl_norm),max(catch_summ$trawl_norm))
-r6 <- range(min(catch_summ$val_WCGBTS),max(catch_summ$val_WCGBTS))
+r5 <- range(min(catch_summ$val_WCGBTS),max(catch_summ$val_WCGBTS))
+r6 <- range(min(catch_summ$trwluntrwl),max(catch_summ$trwluntrwl))
 
-# Export catch summary to CSV table
+# Export catch summary output including shapefile and CSV table
+outFile <-  paste0("WCGBTS_", yr_str, "_summ_Value")
+# Join catch summary data frame to station polygon shapfile
+shp <- right_join(poly, catch_summ, by = "CentroidID") %>% 
+  select(CentroidID, last_col(10):last_col(), -data) # include only specified variables
+# Export catch summary to shapefile
+outSHP <- st_write(shp, paste0("shapefiles/", outFile, ".shp"), append = FALSE) # write sf object to shapefile format
+# Export catch summary to CSV
 library(readr)
-outCSV <-  paste0("WCGBTS_", yr_str, "_summ_Value", ".csv")
-write_csv(catch_summ, outCSV, na = "", append = FALSE)
+write_csv(catch_summ, paste0(outFile, ".csv"), na = "", append = FALSE)
 
 # Prepare layers for plotting
+# Workflow based on 25 Oct 2018 blog article from Mel Moreno and Mathieu Basille
+# Source: https://r-spatial.org/r/2018/10/25/ggplot2-sf-2.html
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
