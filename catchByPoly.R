@@ -5,7 +5,7 @@ library(tidyverse)
 # Set working directory
 library(rstudioapi)
 current_path <- getActiveDocumentContext()$path
-setwd(dirname(current_path))
+dir <- setwd(dirname(current_path))
 print(getwd())
 
 # import shapefiles
@@ -26,7 +26,7 @@ poly <- poly %>%
 load("SPECIES.FMP.Updated with Sci Name and SPID, 24 May 2022.RData")
 spec_set_first50 <- head(SPECIES.FMP.Updated$Scientific_Name,50) # for ALL groundfish FMP species
 spec_set_last42 <- tail(SPECIES.FMP.Updated$Scientific_Name,42) # for ALL groundfish FMP species
-spec_set_last42 <- spec_set_last42[spec_set_last42 != "Merluccius productus"] # exclude hake
+spec_set_last42 <- spec_set_last42[spec_set_last42 != "Merluccius productus"] # exclude Pacific hake
 spec_set_08 <- c(
   'Anoplopoma fimbria' # sablefish
   ,'Microstomus pacificus' # Dover sole
@@ -70,7 +70,7 @@ catch_dat_08 <- PullCatch.fn(SciName = spec_set_08, SurveyName = "NWFSC.Combo") 
 catch_dat_22 <- PullCatch.fn(SciName = spec_set_22, SurveyName = "NWFSC.Combo") # for 22 select species
 catch_dat_first50 <- PullCatch.fn(SciName = spec_set_first50, SurveyName = "NWFSC.Combo") # for All groundfish species, set 1
 catch_dat_last42 <- PullCatch.fn(SciName = spec_set_last42, SurveyName = "NWFSC.Combo") # for All groundfish species, set 2
-catch_dat_80 <- rbind(catch_dat_first50, catch_dat_last42) # for All groundfish species, combiined
+catch_dat_80 <- rbind(catch_dat_first50, catch_dat_last42) # for All groundfish species, combined
 
 # Function to count # of potential species within each survey cell
 # function needs to iterate through list of species and min/max depths, then
@@ -95,7 +95,7 @@ spp_dist_08 <- catch_dat_08 %>%
 library(IRanges)
 ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
 ir2 = with(spp_dist_08, IRanges(dep_min, dep_max)) # declare range for species depth distributions
-poly$numSpp08 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+poly$numSpp08 = countOverlaps(ir1, ir2) # calculates how many species in the set overlap the cell depth range
 
 # Explore species distributions by depth and latitude, for subset of species
 spp_dist_22 <- catch_dat_22 %>% 
@@ -112,7 +112,7 @@ spp_dist_22 <- catch_dat_22 %>%
 library(IRanges)
 ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
 ir2 = with(spp_dist_22, IRanges(dep_min, dep_max)) # declare range for species depth distributions
-poly$numSpp22 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+poly$numSpp22 = countOverlaps(ir1, ir2) # calculates how many species in the set overlap the cell depth range
 
 # Explore species distributions by depth and latitude, for All groundfish species
 spp_dist_80 <- catch_dat_80 %>% 
@@ -129,7 +129,7 @@ spp_dist_80 <- catch_dat_80 %>%
 library(IRanges)
 ir1 = with(poly, IRanges(Min_Dep_m, Max_Dep_m)) # declare range for cell depths
 ir2 = with(spp_dist_80, IRanges(dep_min, dep_max)) # declare range for species depth distributions
-poly$numSpp80 = countOverlaps(ir1, ir2) # calculates how many species in the set overalp the cell depth range
+poly$numSpp80 = countOverlaps(ir1, ir2) # calculates how many species in the set overlap the cell depth range
 
 # convert haul data to point spatial object
 projcrs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
@@ -154,10 +154,10 @@ sj08spp <- st_join(poly, catch_pts_08, left = TRUE)
 sj22spp <- st_join(poly, catch_pts_22, left = TRUE)
 sj80Spp <- st_join(poly, catch_pts_80, left = TRUE)
 
-# For testing purposes
-numSpp_08 <- n_distinct(sj08spp$Scientific_name, na.rm = TRUE) # for testing purposes; # of unique species within data range
-numSpp_22 <- n_distinct(sj22spp$Scientific_name, na.rm = TRUE) # for testing purposes; # of unique species within data range
-numSpp_80 <- n_distinct(sj80Spp$Scientific_name, na.rm = TRUE) # for testing purposes; # of unique species within data range
+# Return # of unique taxa per species set
+numSpp_08 <- n_distinct(sj08spp$Scientific_name, na.rm = TRUE)
+numSpp_22 <- n_distinct(sj22spp$Scientific_name, na.rm = TRUE)
+numSpp_80 <- n_distinct(sj80Spp$Scientific_name, na.rm = TRUE)
 
 # remove the geometry field
 st_geometry(sj08spp) <- NULL
@@ -221,7 +221,7 @@ catch_summ_22_div <- sj22spp %>%
 # Calculate average and normalized CPUE by survey station
 catch_summ_80_wgt <- sj80Spp %>% 
   filter(!is.na(Trawl_id)) %>%
-  mutate(data=paste0(as.character(n_distinct(Scientific_name, na.rm = TRUE)), "_GF_spp")) %>%  # add ddata set unique identifier string
+  mutate(data=paste0(as.character(n_distinct(Scientific_name, na.rm = TRUE)), "_GF_spp")) %>%  # add data set unique identifier string
   group_by(data, CentroidID) %>%
   summarize(numTows=n_distinct(Trawl_id)
             ,sumCatchWgt = sum(cpue_kg_km2, na.rm = TRUE) # calculate total weight for each cell
@@ -241,7 +241,7 @@ catch_summ_80_div <- sj80Spp %>%
             ,sppRich = n_distinct(Scientific_name, na.rm = TRUE) # calculate species richness for each cell
             ) %>% 
   mutate(sppRich_prop = sppRich / numSpp80) %>%  # calculate proportion of taxa caught in each cell
-  ungroup() %>% # ungroup to calcualte min and max values on entire data range
+  ungroup() %>% # ungroup to calculate min and max values on entire data range
   group_by(DepStrata2) %>%  # group to normalize richness data by depth strata
   mutate(sppRich_norm = ( sppRich_prop - min(sppRich_prop) ) / ( max(sppRich_prop) - min(sppRich_prop) )) # normalized
 
@@ -280,12 +280,18 @@ catch_summ_22_80 <- full_join(catch_summ_22, catch_summ_80, by = "CentroidID") %
          ,sppRich_80, numSpp80, sppRich_80_norm, avgCatchWgt_80, avgCatchWgt_80_norm)
 
 # Final join of data summaries
+# Load ancillary data files
+juvenile.groundfish.to.WCGFBT.grid.data <- readRDS("~/Documents/GitHub/SurveyCoverage/juvenile.groundfish.to.WCGFBT.grid.data.Rds") # juvenile habitat
+data.non.confidential <- readRDS("~/Documents/GitHub/SurveyCoverage/data.non.confidential.Rds") # commercial GF CPUE
+
 catch_summ <- full_join(catch_summ_08, catch_summ_22_80, by = "CentroidID") %>% 
   mutate(numTows = numTows_80) %>% 
   left_join(juvenile.groundfish.to.WCGFBT.grid.data, by = "CentroidID") %>% 
   mutate(juv_all_spp_nona = ifelse(is.na(Norm_ALL_SPECIES), 0, Norm_ALL_SPECIES) ) %>% # convert unmatched cells to 0 value
   mutate(juv_norm = ( juv_all_spp_nona - min(juv_all_spp_nona) ) / ( max(juv_all_spp_nona) - min(juv_all_spp_nona) )) %>% # normalize
   mutate(trwluntrwl = 1) %>%   # categorical value for survey trawlability
+  # left_join(data.non.confidential, by = "CentroidID") %>% 
+  # mutate(commCPUE_norm = norm.mean.cpue.2011.2019) %>% 
   mutate(val_raw = sppRich_80_norm + avgCatchWgt_08_norm + avgCatchWgt_22_norm + avgCatchWgt_80_norm + juv_norm) %>% # raw additive value
   mutate(val_norm = ( val_raw - min(val_raw) ) / ( max(val_raw) - min(val_raw)) ) %>% # normalize
   select(CentroidID, DepStrat, numTows
@@ -323,68 +329,304 @@ outSHP <- st_write(shp, paste0("shapefiles/", outFile, ".shp"), append = FALSE) 
 library(readr)
 write_csv(catch_summ, paste0(outFile, ".csv"), na = "", append = FALSE)
 
+# Plotting Section (from Kelly Andrews' "Mapping code.R" script)
+library(ggOceanMapsData) # package error
+library(ggOceanMaps)
+library(ggnewscale)
+library(marmap) #for getNOAA.bathy function
+
+# Bring in US map borders
+wc <- st_read("~/Documents/GIS/WC/WCstates100K_ply_utm.shp") %>%
+  # filter(NAME %in% c("Washington","Oregon","California")) %>%
+  st_transform(crs="+proj=tmerc +lat_0=31.96 +lon_0=-121.6 +k=1 +x_0=390000 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 ")
+
+# Oregon Call Areas
+# O <- st_read("/Users/kelly.andrews/Documents/GitLab/habitat-modification/GIS layers/Oregon Call Areas/Proposed_Call_Areas_2022_02_25.shp") %>%
+#   filter(Name != "Bandon") %>%
+O <- wea %>% 
+  st_transform(crs="+proj=tmerc +lat_0=31.96 +lon_0=-121.6 +k=1 +x_0=390000 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 ") %>%
+  st_union()
+
+# Bring in bathymetry for smaller scale maps (i.e. Sanctuaries)
+# bgdb <- "/Users/kelly.andrews/Documents/GitLab/habitat-modification/GIS layers/bathymetryContours/BathymetryContours.gdb"  #Bathymetry from https://marinecadastre.gov/nationalviewer/
+bgdb <- "~/Documents/GIS/Mapping/NGDC/NGDCbathy.gdb"  
+bathy <- st_read(dsn=bgdb, layer="bat_cont5diss_utm")
+bathy <- st_transform(bathy, crs="+proj=tmerc +lat_0=31.96 +lon_0=-121.6 +x_0=390000 +y_0=0 +k=1.0 +datum=WGS84 +units=m +no_defs")
+bathy <- st_crop(bathy, c(xmin=64196.97, xmax=500000, ymin=234822.1, ymax=1842822))
+bathy.sub <- bathy[which(bathy$CONTOUR=="-55"|bathy$CONTOUR=="-185"|bathy$CONTOUR=="-550"|bathy$CONTOUR=="-1280"),]
+
+# Designate map boundaries
+xlim <- c(-125.5, -124)
+ylim <- c(41.8, 44)
+
+# Get bathymetry data for a better basemap
+pt.baty = getNOAA.bathy(
+  lon1 = -126, 
+  lon2 = -123, 
+  lat1 = 41, 
+  lat2 = 45, resolution = 1)
+
+# Mapping
+# Component plots
+# Catch Rate 08 spp
+p1 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = avgCatchWgt_08_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Mean CPUE, 8 spp.") + # title for individual plot
+  # labs(title = "Mean CPUE, 8 spp.") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig1_NormalizedMeanCPUE_08sp_2003_2019.png"), plot = p1, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Catch Rate 22 spp
+p2 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = avgCatchWgt_22_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Mean CPUE, 22 spp.") + # title for individual plot
+  # labs(title = "Mean CPUE, 22 spp.") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig2_NormalizedMeanCPUE_22sp_2003_2019.png"), plot = p2, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Catch Rate 80 spp
+p3 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = avgCatchWgt_80_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Mean CPUE, 79 spp.") + # title for individual plot
+  # labs(title = "Mean CPUE, 79 spp.") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig3_NormalizedMeanCPUE_79sp_2003_2019.png"), plot = p3, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Species Richness
+p4 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = sppRich_80_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Spp. Richness") + # title for individual plot
+  # labs(title = "Spp. Richness") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig4_NormalizedSppRichness_2003_2019.png"), plot = p4, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Juvenile Habitat, 13 spp
+p5 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = juv_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Juvenile Habitat, 13 spp.") + # title for individual plot
+  # labs(title = "Juvenile Habitat, 13 spp.") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig5_NormalizedJuvHabitat_2003_2019.png"), plot = p5, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Value plot
+p6 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = val_norm), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS \"Value\", 2003-2019") + # title for individual plot
+  # labs(title = "WCGBTS \"Value\"") + # title for arranged multiple plots
+  # labs(title = "WCGBTS \"Value\", 2003-2019") + # title for arranged double plot
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig6_NormalizedValue_2003_2019.png"), plot = p6, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Number of Tows plot
+p7 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = outSHP, aes(fill = numTows), lwd = 0.1) +
+  scale_fill_gradientn(" \n ", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "WCGBTS Tows per Cell, 2003-2019") + # title for individual plot
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_fig7_NumTows_2003_2019.png"), plot = p7, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+
+# Create arranged multi-panel plot
+library("ggpubr")
+pAll <- ggarrange(p1+rremove("x.text"),NULL,p2+rremove("x.text")+rremove("y.text"),NULL,p3+rremove("x.text")+rremove("y.text")
+                  ,p4+rremove("x.text"),NULL,p5+rremove("x.text")+rremove("y.text"),NULL,p6+rremove("x.text")+rremove("y.text")
+                  # ,labels = c("Mean CPUE, 8 spp.", "Mean CPUE, 22 spp.", "Mean CPUE, 79 spp.", "Species Richness", "Juvenile Habitat, 13 spp.", ""Survey \"Value\"")
+                  ,ncol = 5, nrow = 2
+                  ,widths = c(1.1, -0.6, 1, -0.6, 1)
+                  ,common.legend = TRUE, legend = "bottom"
+                  )
+pAll
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS_6panel_2003_2019.png"), plot = pAll, width = 10, height = 8.5, units = "in", bg = "white", dpi = 300)
+
+# Kelly's plot
+p8 <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = data.non.confidential, aes(fill = norm.mean.cpue.2011.2019), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  theme_bw() +
+  theme(axis.title = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
+  labs(title = "Mean Fishery CPUE, 2011-2019") + # title for arranged multiple plots
+  geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
+  geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
+  geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
+
+# Side-by-side plot
+pDbl <- ggarrange(p6,NULL,p8
+                  ,ncol = 3, nrow = 1
+                  ,widths = c(1, -0.1, 1)
+                  ,common.legend = TRUE, legend = "right"
+                  )
+pDbl
+
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS-Fishery_2panel.png"), plot = pDbl, width = 10, height = 8.5, units = "in", bg = "white", dpi = 300)
+
+
+# # OLD plotting code
 # Prepare layers for plotting
 # Workflow based on 25 Oct 2018 blog article from Mel Moreno and Mathieu Basille
 # Source: https://r-spatial.org/r/2018/10/25/ggplot2-sf-2.html
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(sf)
-world <- ne_countries(scale = "medium", returnclass = "sf")
-class(world)
+# library(rnaturalearth)
+# library(rnaturalearthdata)
+# library(sf)
+# world <- ne_countries(scale = "medium", returnclass = "sf")
+# class(world)
+# 
+# # Create points for state labels
+# library(maps)
+# states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
+# state_list <- c('California', 'Oregon', 'Washington')
+# states <- states %>% filter(ID == 'oregon')
+# states <- cbind(states, st_coordinates(st_centroid(states, of_largest_polygon = TRUE)))
+# wea <- wea %>% filter(Area_Name == 'Coos Bay')
+# 
+# library(tools)
+# states$ID <- toTitleCase(states$ID)
+# head(states)
+# 
+# # join results to polygon shape
+# p1shp = left_join(poly, catch_summ, by = c("CentroidID"))
+# stns <- cbind(p1shp, st_coordinates(st_centroid(p1shp, of_largest_polygon = TRUE)))
 
-# Create points for state labels
-library(maps)
-states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
-state_list <- c('California', 'Oregon', 'Washington')
-states <- states %>% filter(ID == 'oregon')
-states <- cbind(states, st_coordinates(st_centroid(states, of_largest_polygon = TRUE)))
-wea <- wea %>% filter(Area_Name == 'Coos Bay')
-
-library(tools)
-states$ID <- toTitleCase(states$ID)
-head(states)
-
-# join results to polygon shape
-p1shp = left_join(poly, catch_summ, by = c("CentroidID"))
-stns <- cbind(p1shp, st_coordinates(st_centroid(p1shp, of_largest_polygon = TRUE)))
-
-library(ggplot2)
-library(RColorBrewer)
-library(ggspatial)
-# ggplot template
-# ggplot(a, aes(x = X, y = Y))+geom_text(aes(label = VAL)) # for this purpose, label = numTows OR label = sppRich
-
-sf_use_s2(FALSE)
-# my_breaks <- c(0, 0.1, 1, 10, 100, 1000)
-# my_breaks <- c(0.1, 1, 10, 100, 1000)
-# my_breaks <- c(0, 29, 80, 252, 930, 1000)
-# my_breaks <- c(0.001, 0.01, 1)
-p1 <- ggplot(date = world) +
-  geom_sf() +
-  geom_sf(data = states, fill = NA) + 
-  geom_label(data = stns, aes(x=X, y=Y, label = numTows)) +
-  geom_sf(data = p1shp, aes(fill = avgCatchWgt_norm)) +
-  # scale_fill_continuous(values=rev(brewer.pal(7, "YlGnBu")), na.value="grey90")+
-  # scale_fill_gradient(low = "#132B43",
-  #                     high = "#56B1F7",
-  #                     space = "Lab",
-  #                     na.value = "grey90",
-  #                     guide = "colourbar",
-  #                     aesthetics = "fill") +
-  # scale_fill_viridis_c(trans = "log", alpha = .4, na.value="grey90") +
-  # scale_fill_viridis_c(breaks = my_breaks, labels = my_breaks
-  #                      ,trans = scales::pseudo_log_trans(sigma = 0.1)
-  #                      , direction = -1, alpha = .8, na.value="grey90", name = "Weight (kg)") +
-  scale_fill_viridis_c(direction = -1, alpha = .8, na.value="grey90", name = "Weight (kg)") +
-  geom_sf(data = wea, fill = NA, color = "darkred") +
-  geom_text(data = states, aes(X, Y, label = ID), size = 5) +
-  annotation_north_arrow(location = "bl", which_north = "true", 
-                         pad_x = unit(0.25, "in"), pad_y = unit(0.25, "in"),
-                         style = north_arrow_fancy_orienteering) +
-  coord_sf(xlim = c(-125.4, -124), ylim = c(43.0, 44.2), expand = FALSE) +
-  xlab("Longitude") + ylab("Latitude") +
-  ggtitle("WCGBTS (2003-19)", subtitle = paste0("(Normalized average CPUE per Survey Cell for ", length(spec_set), " select groundfish taxa)")) +
-  theme(legend.justification=c(1,0), legend.position=c(1,0))
-p1
-
-# export plot
+# library(ggplot2)
+# library(RColorBrewer)
+# library(ggspatial)
+# # ggplot template
+# # ggplot(a, aes(x = X, y = Y))+geom_text(aes(label = VAL)) # for this purpose, label = numTows OR label = sppRich
+# 
+# sf_use_s2(FALSE)
+# # my_breaks <- c(0, 0.1, 1, 10, 100, 1000)
+# # my_breaks <- c(0.1, 1, 10, 100, 1000)
+# # my_breaks <- c(0, 29, 80, 252, 930, 1000)
+# # my_breaks <- c(0.001, 0.01, 1)
+# p1 <- ggplot(date = world) +
+#   geom_sf() +
+#   geom_sf(data = states, fill = NA) + 
+#   geom_label(data = stns, aes(x=X, y=Y, label = numTows)) +
+#   geom_sf(data = p1shp, aes(fill = avgCatchWgt_norm)) +
+#   # scale_fill_continuous(values=rev(brewer.pal(7, "YlGnBu")), na.value="grey90")+
+#   # scale_fill_gradient(low = "#132B43",
+#   #                     high = "#56B1F7",
+#   #                     space = "Lab",
+#   #                     na.value = "grey90",
+#   #                     guide = "colourbar",
+#   #                     aesthetics = "fill") +
+#   # scale_fill_viridis_c(trans = "log", alpha = .4, na.value="grey90") +
+#   # scale_fill_viridis_c(breaks = my_breaks, labels = my_breaks
+#   #                      ,trans = scales::pseudo_log_trans(sigma = 0.1)
+#   #                      , direction = -1, alpha = .8, na.value="grey90", name = "Weight (kg)") +
+#   scale_fill_viridis_c(direction = -1, alpha = .8, na.value="grey90", name = "Weight (kg)") +
+#   geom_sf(data = wea, fill = NA, color = "darkred") +
+#   geom_text(data = states, aes(X, Y, label = ID), size = 5) +
+#   annotation_north_arrow(location = "bl", which_north = "true", 
+#                          pad_x = unit(0.25, "in"), pad_y = unit(0.25, "in"),
+#                          style = north_arrow_fancy_orienteering) +
+#   coord_sf(xlim = c(-125.4, -124), ylim = c(43.0, 44.2), expand = FALSE) +
+#   xlab("Longitude") + ylab("Latitude") +
+#   ggtitle("WCGBTS (2003-19)", subtitle = paste0("(Normalized average CPUE per Survey Cell for ", length(spec_set), " select groundfish taxa)")) +
+#   theme(legend.justification=c(1,0), legend.position=c(1,0))
+# p1
