@@ -490,16 +490,20 @@ p6 <- ggplot(pt.baty) +
   theme_bw() +
   theme(axis.title = element_blank(),
         axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8)) +
-  labs(title = "WCGBTS \"Value\", 2003-2019") + # title for individual plot
+  # labs(title = "WCGBTS \"Value\", 2003-2019") + # title for individual plot
   # labs(title = "WCGBTS \"Value\"") + # title for arranged multiple plots
-  # labs(title = "WCGBTS \"Value\", 2003-2019") + # title for arranged double plot
+  labs(title = "WCGBTS \"Value\", 2003-2019") + # title for arranged double plot
   geom_sf(data = wc, color = "black", size = 0.125, fill = "lightgray") +
   geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
   geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
+  geom_sf_text(data = bathy.sub, aes(label = CONTOUR) # attempt to add contour labels; still needs work
+               , stat = "sf_coordinates"
+               , nudge_x = c(0.1, 0.1, -0.06, -0.05), nudge_y = c(0, 0, -0.01, 0)
+               , color = "darkgray", size = 2, fontface = "bold") +
   coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
-
+p6
 # Save output plot
-ggsave(paste0(dir, "/figures/WCGBTS_fig6_NormalizedValue_2003_2019.png"), plot = p6, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
+ggsave(paste0(dir, "/figures/WCGBTS_fig6_NormalizedValue_2003_2019_lab.png"), plot = p6, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
 
 # Number of Tows plot
 p7 <- ggplot(pt.baty) +
@@ -518,7 +522,7 @@ p7 <- ggplot(pt.baty) +
   geom_sf(data = O, color = "black", size = 0.5, fill = "transparent") +
   geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
   coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
-
+p7
 # Save output plot
 ggsave(paste0(dir, "/figures/WCGBTS_fig7_NumTows_2003_2019.png"), plot = p7, width = 4, height = 6, units = "in", bg = "white", dpi = 300)
 
@@ -554,16 +558,47 @@ p8 <- ggplot(pt.baty) +
   geom_sf(data = bathy.sub, color = "darkgray", size = 0.2) +
   coord_sf(xlim = xlim, ylim = ylim, expand = TRUE)
 
-# Side-by-side plot
-pDbl <- ggarrange(p6,NULL,p8
+# Two-panel side-by-side plot
+library("ggpubr")
+# Legend Only plot
+# See https://www.datanovia.com/en/blog/how-to-remove-legend-from-a-ggplot/
+pVoid <- ggplot(pt.baty) +
+  geom_raster(data = pt.baty, aes(x=x, y=y, fill=z)) +
+  scale_fill_etopo(guide = "none") +
+  new_scale_fill() +
+  geom_sf(data = data.non.confidential, aes(fill = norm.mean.cpue.2011.2019), lwd = 0.1) +
+  scale_fill_gradientn("Scaled\nvalue", 
+                       colours = c("blue","cyan","khaki","orange","red"),
+                       na.value = NA) +
+  lims(x = c(0,0), y = c(0,0))+
+  theme_void()+
+  theme(legend.position = c(0.5,0.5)
+        # ,legend.key.size = unit(1, "cm")
+        # ,legend.text = element_text(size =  12)
+        # ,legend.title = element_text(size = 15, face = "bold")
+        ) +
+  guides(colour = guide_legend(override.aes = list(size=8)))
+pVoid
+# Construct two-panel plot with legend in between two plots
+# See https://stackoverflow.com/questions/61534072/how-to-add-a-legend-after-arrange-several-plots-using-ggarrange-from-the-ggpub
+pDbl <- ggarrange(p6+rremove("legend"), pVoid, p8+rremove("legend")+rremove("y.text")
                   ,ncol = 3, nrow = 1
-                  ,widths = c(1, -0.1, 1)
-                  ,common.legend = TRUE, legend = "right"
+                  ,widths = c(1, 0.05, 1)
                   )
 pDbl
-
 # Save output plot
-ggsave(paste0(dir, "/figures/WCGBTS-Fishery_2panel.png"), plot = pDbl, width = 10, height = 8.5, units = "in", bg = "white", dpi = 300)
+ggsave(paste0(dir, "/figures/WCGBTS-Fishery_2panel_legend_in_middle.png"), plot = pDbl, width = 10, height = 8.5, units = "in", bg = "white", dpi = 300)
+
+# Construct more classic side-by-side plot
+pDbl <- ggarrange(p6, NULL, p8+rremove("y.text")
+                  ,ncol = 3, nrow = 1
+                  ,widths = c(1, -0.35, 1)
+                  ,common.legend = TRUE
+                  ,legend = "bottom"
+                  )
+pDbl
+# Save output plot
+ggsave(paste0(dir, "/figures/WCGBTS-Fishery_2panel_legend_on_bottom.png"), plot = pDbl, width = 10, height = 8.5, units = "in", bg = "white", dpi = 300)
 
 
 # # OLD plotting code
