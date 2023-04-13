@@ -15,7 +15,7 @@ poly <- sf::st_read("BOEM_CA_OR_WEAs_WGS84.shp")
 # sf::st_crs(poly)
 
 # import haul data
-haul_dat = PullHaul.fn(SurveyName = "NWFSC.Combo", YearRange=c(2003,2019))
+haul_dat = PullHaul.fn(SurveyName = "NWFSC.Combo", YearRange=c(2003,5000))
 
 # convert haul data to point spatial object
 projcrs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
